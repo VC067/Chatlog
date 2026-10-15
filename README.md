@@ -19,9 +19,9 @@ Each computer has its own archive, settings, trial/history usage and folder perm
 
 Use the **same Claude account** on the second computer first; otherwise the account data differs and the comparison cannot isolate the computer/profile.
 
-1. Open **Connections → Claude → Check connection**. Record the fresh result and expanded report.
+1. Open **Connections → Claude**. A successful check or history import shows **Connected**; the extra check button is hidden in that healthy state. If only site permission is known, or access needs attention, use **Check connection**. Detailed reports are available in support mode.
 2. Create a disposable Claude conversation with a short prompt and reply. Wait a few seconds after the reply finishes, then check **Archive** and the selected local folder for the note.
-3. Use **Save open chat** as a separate manual-save check.
+3. Use **Save current chat** as a separate manual-save check.
 4. In **Capture & history → Bring in your history**, select **Claude**, select **25 chats**, then choose **Save latest 25**. A repeated scan of unchanged archived chats can save zero additional conversations. The trial allows 25 unique historical conversations per provider; the five already imported use five of those slots. Automatic new-chat capture and manual open-chat saving are separate from that historical allowance while the trial is active. A ChatGPT cooldown does not lock a Claude-only history scan.
 5. A **Waiting** status with HTTP 429 means the provider rate-limited a request. The saved checkpoint resumes after its earliest retry time while Chrome is running; a later provider response can extend the wait.
 
@@ -33,9 +33,15 @@ This build skips organizations explicitly marked API-capable without chat capabi
 
 The selected folder holds Markdown plus image side files. Keep the provider's `files/` subfolders with the notes so relative image links continue to work. This build reads explicit Claude image previews in `files[].preview_asset.url` or `preview_url`, preferring a supplied original download URL. Available same-provider image bytes are copied locally with the correct image extension. Preview-only recovery preserves the supplied preview, not a guarantee of the original upload resolution.
 
-After updating, test with a disposable Claude image upload and **Save open chat**, then inspect both the note and the new file under `claude/files/`. To repair an already archived image conversation, open it in Claude and choose Save open chat; unchanged historical scans can reuse old archive data. Opening the note in Obsidian is also a useful rendering check alongside the macOS preview. Rendering and binary availability are separate checks.
+After updating, test with a disposable Claude image upload and **Save current chat**, then inspect both the note and the new file under `claude/files/`. To repair an already archived image conversation, open it in Claude and choose Save current chat; unchanged historical scans can reuse old archive data. Opening the note in Obsidian is also a useful rendering check alongside the macOS preview. Rendering and binary availability are separate checks.
 
 A PDF preview or a filename alone cannot recover the original PDF. An explicit available document download URL is saved; otherwise the note states the original attachment could not be copied. Keep the original chat available for those files. [Polish and media verification](docs/SECOND_COMPUTER_POLISH.md) records the evidence and remaining live acceptance.
+
+## Save the current Grok chat
+
+Open an individual conversation on **grok.com**, wait for the reply to finish, then open Chatlog and choose **Save current chat**. Load older messages first if you want them included. This manual capture saves the rendered text and is marked partial; Grok automatic capture, history import and media backup are unavailable in this build.
+
+The reader targets Grok message bubbles and explicit message containers, including layouts outside `<main>`. It excludes navigation and action controls, preserves code indentation, and checks that the tab has not changed conversations during capture. [Repair checks](docs/GROK_CURRENT_CHAT_REPAIR.md) distinguish synthetic verification from the remaining live account test.
 
 ## Build from source
 
@@ -62,6 +68,6 @@ Install the browser for packaged checks with `npx playwright install chromium` b
 
 ## Testing status
 
-Ordinary Claude automatic/manual capture and basic Notion delivery have live user confirmation. Image/artifact fidelity, repeated destination updates, user-edit preservation, dedicated Canvas handling and final store acceptance still need completion. Grok supports manual open-chat capture; Grok history import is unavailable. Production checkout is unconfigured.
+Ordinary Claude automatic/manual capture and basic Notion delivery have live user confirmation. Image/artifact fidelity, repeated destination updates, user-edit preservation, dedicated Canvas handling and final store acceptance still need completion. Grok supports manual current-chat capture; Grok history import is unavailable. Production checkout is unconfigured.
 
 Local vaults, browser test profiles, credentials, dependencies and generated build output are excluded from source control. The test ZIP is attached separately to the private release. This handoff contains the extension and focused test documentation; the separately developed marketing site and private planning documents remain local.

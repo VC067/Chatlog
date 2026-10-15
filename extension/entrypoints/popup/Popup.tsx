@@ -528,7 +528,7 @@ export default function Popup() {
                 >
                   {query.trim()
                     ? "Try another phrase. Search includes the full conversation."
-                    : "Save an open chat, or check recent conversations."}
+                    : "Save the current chat, or check recent conversations."}
                 </PopupEmpty>
               )}
             </div>
@@ -551,7 +551,7 @@ export default function Popup() {
                 onClick={saveOpen}
               >
                 <Icon name="capture" size={16} />
-                {busy === "active" ? "Saving open chat…" : "Save open chat"}
+                {busy === "active" ? "Saving current chat…" : "Save current chat"}
               </button>
               {tab === "inbox" && (
                 <button

@@ -23,6 +23,8 @@ import { ProviderRequestError } from '../core/sync/transport.ts';
 import { CLAUDE_ENABLED } from '../core/provider-features.ts';
 import { readHistoryUsage } from '../core/sync/persistence.ts';
 import { readCaptureHealth, collectCaptureRuntime } from '../core/sync/capture-health.ts';
+import { grokConversationId } from '../providers/grok/url.ts';
+import { readVisibleGrokConversation } from '../providers/grok/page-capture.ts';
 
 function syncError(error: string | null | undefined): string | null {
   if (!error) return null;
@@ -36,7 +38,7 @@ function syncError(error: string | null | undefined): string | null {
     claude_accounts_skipped: 'Saved accessible Claude history. Some Claude workspaces were unavailable; those chats were not imported.',
     provider_request_failed: 'Could not contact the provider. Check your connection and sign-in.',
     unavailable: 'The provider is temporarily unavailable. Saving will retry automatically.',
-    trial_history_limit: 'Your history import allowance is used. Saving an open chat is still available.',
+    trial_history_limit: 'Your history import allowance is used. Saving the current chat is still available.',
     entitlement_inactive: 'Automatic and bulk saving are paused. Manual saving and your archive remain available.',
     paused: 'History saving is paused.',
   };
@@ -82,33 +84,24 @@ async function activeTab() {
   try { return { tab, url: new URL(tab.url) }; } catch { return null; }
 }
 
-async function captureGrok(): Promise<{ ok: boolean; message: string }> {
-  const active = await activeTab();
+async function captureGrok(selected?: NonNullable<Awaited<ReturnType<typeof activeTab>>>): Promise<{ ok: boolean; message: string }> {
+  const active = selected ?? await activeTab();
   if (!active) return { ok: false, message: 'Open a Grok conversation first.' };
   const { tab, url } = active;
-  const allowed = url.protocol === 'https:' &&
-    (url.hostname === 'grok.com' || url.hostname.endsWith('.grok.com') ||
-      (url.hostname === 'x.com' || url.hostname.endsWith('.x.com')) && url.pathname.includes('/grok'));
-  const id = url.pathname.split('/').filter(Boolean).at(-1);
-  if (!allowed || !id || ['grok', 'chat', 'chats', 'home', 'c'].includes(id) || id.length < 6) {
+  const id = grokConversationId(url);
+  if (!id) {
     return { ok: false, message: 'Open an individual Grok conversation, then save it.' };
   }
   const [result] = await browser.scripting.executeScript({
     target: { tabId: tab.id! },
-    func: () => {
-      const nodes = [...document.querySelectorAll('main article, main [data-testid*="message"]')];
-      const turns = nodes.map((node) => {
-        const hint = [node.getAttribute('data-role'), node.getAttribute('data-author'), node.getAttribute('data-message-author-role')].filter(Boolean).join(' ').toLowerCase();
-        return { role: /user|human/.test(hint) ? 'user' : /assistant|grok/.test(hint) ? 'assistant' : null, text: (node.textContent ?? '').trim() };
-      }).filter((turn) => turn.text.length > 0);
-      const text = turns.length ? turns.map((turn) => turn.text).join('\n\n') : (document.querySelector('main') as HTMLElement | null)?.innerText ?? '';
-      const maximum = 500_000;
-      return { turns: text.length > maximum ? [] : turns, text: text.slice(0, maximum), truncated: text.length > maximum, title: document.title };
-    },
+    func: readVisibleGrokConversation,
+    args: [url.href],
   });
-  const capture = result?.result as {
-    turns?: Array<{ role: string | null; text: string }>; text?: string; truncated?: boolean; title?: string;
-  } | undefined;
+  const capture = result?.result;
+  const currentTab = await browser.tabs.get(tab.id!);
+  if (!capture || currentTab.url !== url.href) {
+    return { ok: false, message: 'The conversation changed while saving. Keep the current chat open and try again.' };
+  }
   if (!capture?.text?.trim()) return { ok: false, message: 'No conversation text was visible. Load the conversation and try again.' };
   const attributed = capture.turns?.length && capture.turns.every((turn) => turn.role === 'user' || turn.role === 'assistant');
   const entries = attributed ? capture.turns!.map((turn) => ({ role: turn.role as 'user' | 'assistant', text: turn.text }))
@@ -123,9 +116,10 @@ async function captureGrok(): Promise<{ ok: boolean; message: string }> {
     attributed ? '' : 'Speaker attribution could not be verified.',
     capture.truncated ? 'The visible transcript exceeded the capture size limit and was truncated.' : '',
   ].filter(Boolean).join(' ');
+  const pageTitle = capture.title.replace(/\s*[-|]\s*Grok\s*$/i, '').trim();
   const outcome = await ingestDraft({
     provider: 'grok', accountScope: 'default', sourceId: id, sourceUrl: tab.url!,
-    title: capture.title?.replace(/\s*[-|]\s*Grok\s*$/i, '').trim() || titleFromText(capture.text),
+    title: pageTitle && !/^grok$/i.test(pageTitle) ? pageTitle : titleFromText(capture.text),
     text: '', messages, replace: true, completeness: 'partial', warning,
     manual: true, captureKind: 'manual',
   });
@@ -139,7 +133,7 @@ async function saveActiveConversation(): Promise<{ ok: boolean; message: string 
   if (!active) return { ok: false, message: 'Open a ChatGPT, Claude or Grok conversation first.' };
   const { url } = active;
   if (url.hostname === 'grok.com' || url.hostname.endsWith('.grok.com') ||
-    (url.hostname === 'x.com' || url.hostname.endsWith('.x.com')) && url.pathname.includes('/grok')) return captureGrok();
+    (url.hostname === 'x.com' || url.hostname.endsWith('.x.com')) && url.pathname.includes('/grok')) return captureGrok(active);
   const provider = url.hostname === 'chatgpt.com' ? 'chatgpt' : url.hostname === 'claude.ai' ? 'claude' : null;
   if (provider === 'claude' && !CLAUDE_ENABLED) return { ok: false, message: 'Claude is temporarily disabled in this testing build.' };
   if (!provider || url.protocol !== 'https:') return { ok: false, message: 'Open a supported provider conversation first.' };

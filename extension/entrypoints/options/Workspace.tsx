@@ -720,6 +720,36 @@ export default function Workspace() {
                 ["paused", "failed"].includes(progress?.state ?? "")),
           );
           const probe = provider === "claude" ? latestClaudeProbe : null;
+          const healthyProbe = Boolean(probe?.ok);
+          const failedLatestProbe = Boolean(probe && !probe.ok);
+          const itemErrorCode = item?.errorCode ?? item?.error;
+          const itemErrorIsCurrent = Boolean(
+            !healthyProbe ||
+              (item?.lastRunAt &&
+                (Date.parse(item.lastRunAt) || 0) >
+                  (Date.parse(probe?.checkedAt ?? "") || 0)),
+          );
+          const actionableItemError = Boolean(
+            itemErrorIsCurrent &&
+              itemErrorCode !== "trial_history_limit" &&
+              !(itemErrorCode === "claude_accounts_skipped" && progress?.state === "completed") &&
+              (item?.error ||
+                ["error", "needs_signin"].includes(item?.state ?? "")),
+          );
+          const actionableProgressError = Boolean(
+            !healthyProbe &&
+              (progress?.errorCode ?? progress?.error) !== "trial_history_limit" &&
+              !(
+                (progress?.errorCode ?? progress?.error) === "claude_accounts_skipped" &&
+                progress?.state === "completed"
+              ) &&
+              (progress?.error ||
+                ["failed", "error", "paused"].includes(progress?.state ?? "")),
+          );
+          const claudeNeedsAttention = Boolean(
+            provider === "claude" &&
+              (failedLatestProbe || actionableItemError || actionableProgressError),
+          );
           const checking =
             provider === "claude" &&
             (busy === "check-claude" || busy === "reset-claude");
@@ -754,7 +784,7 @@ export default function Workspace() {
                         provider === "claude"
                           ? checking
                             ? "blue"
-                            : coverageNotice
+                            : claudeNeedsAttention || supportMode && coverageNotice
                               ? "warn"
                               : supportMode && probe
                               ? probe.ok
@@ -770,8 +800,10 @@ export default function Workspace() {
                       {provider === "claude"
                         ? checking
                           ? "Checking"
-                          : coverageNotice
-                            ? "Some workspaces unavailable"
+                          : claudeNeedsAttention
+                            ? "Needs attention"
+                            : supportMode && coverageNotice
+                              ? "Some workspaces unavailable"
                             : supportMode && probe
                               ? probe.source === "import"
                                 ? probe.ok
@@ -780,14 +812,18 @@ export default function Workspace() {
                                 : probe.ok
                                   ? "Last check passed"
                                   : "Last check failed"
-                            : "Site access enabled"
+                            : healthyProbe
+                              ? "Connected"
+                              : "Site access enabled"
                         : item?.state === "needs_signin"
                           ? "Sign in needed"
                           : item?.state === "error"
                             ? "Needs attention"
                             : "Site access enabled"}
                     </Badge>
-                    {provider === "claude" && !setup && (
+                    {provider === "claude" &&
+                      !setup &&
+                      (supportMode || checking || !healthyProbe || claudeNeedsAttention) && (
                       <button
                         className="secondary"
                         disabled={!!busy}
@@ -862,8 +898,8 @@ export default function Workspace() {
         })}
         {historyLimited && (
           <p className="sync-guidance">
-            History allowance used. This applies to history imports; saving an
-            open chat remains available.
+            History allowance used. This applies to history imports; saving the
+            current chat remains available.
           </p>
         )}
       </div>
@@ -1170,7 +1206,7 @@ export default function Workspace() {
         {trialLimited && (
           <p className="sync-guidance">
             History allowance used. This allowance applies to history imports;
-            saving an open chat remains available.
+            saving the current chat remains available.
             {status.settings.autoSync && status.license.autoCaptureAllowed
               ? " Automatic new-chat saving is on."
               : ""}
@@ -1532,7 +1568,7 @@ export default function Workspace() {
                   {statusPanel()}
                   {!historyConnected && (
                     <Empty title="Grok is ready in your toolbar" icon="capture">
-                      Open a Grok conversation, then use Save open conversation
+                      Open a Grok conversation, then use Save current chat
                       in the popup.
                     </Empty>
                   )}
@@ -1929,7 +1965,7 @@ export default function Workspace() {
                   >
                     {query
                       ? "Try a different phrase or provider. Search includes transcript text and code."
-                      : "Save an open conversation from the toolbar or bring in history from Capture & history."}
+                      : "Save the current chat from the toolbar or bring in history from Capture & history."}
                   </Empty>
                 )}
               </div>

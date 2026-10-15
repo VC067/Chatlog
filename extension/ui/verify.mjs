@@ -1457,10 +1457,10 @@ try {
     },
   );
   await check(
-    "Save open chat errors stay honest and Saved list scrolls inside 600px",
+    "Save current chat errors stay honest and Saved list scrolls inside 600px",
     async () => {
       await popup.page
-        .getByRole("button", { name: "Save open chat", exact: true })
+        .getByRole("button", { name: "Save current chat", exact: true })
         .click();
       await expect(popup.page.getByRole("alert")).toContainText(
         "Open a supported conversation tab first.",
@@ -1638,9 +1638,10 @@ try {
     await expect(publicUI.page.getByRole("button", { name: "Copy report", exact: true })).toHaveCount(0);
     await publicUI.page.screenshot({ path: output + "/clean-history.png", fullPage: true });
     await publicUI.page.getByRole("button", { name: "Connections", exact: true }).click();
-    await publicUI.page.evaluate(() => { window.__connectionCheckOK = true; });
-    await publicUI.page.getByRole("button", { name: "Check connection", exact: true }).click();
-    await expect(publicUI.page.getByText("Claude is connected.", { exact: true })).toBeVisible();
+    const claude = publicUI.page.locator('.provider-connection[data-provider="claude"]');
+    await expect(claude.locator('.badge')).toHaveText("Connected");
+    await expect(claude.getByRole("button", { name: "Check connection", exact: true })).toHaveCount(0);
+    await expect(claude.getByRole("button", { name: "Disconnect", exact: true })).toBeVisible();
     await expect(publicUI.page.locator(".claude-report, pre")).toHaveCount(0);
     await publicUI.page.getByRole("button", { name: "Data & help", exact: true }).click();
     await expect(publicUI.page.getByRole("heading", { name: "Troubleshooting", exact: true })).toHaveCount(0);
@@ -1686,6 +1687,32 @@ try {
     await publicUI.page.screenshot({ path: output + "/custom-menu-dark.png", fullPage: true });
   });
   await publicUI.context.close();
+  const unverifiedStatus = structuredClone(base);
+  unverifiedStatus.sync = [];
+  const unverified = await pageWith(unverifiedStatus);
+  await check("Unverified Claude permission stays distinct from a confirmed connection and failed checks remain recoverable", async () => {
+    await unverified.page.getByRole("button", { name: "Connections", exact: true }).click();
+    const claude = unverified.page.locator('.provider-connection[data-provider="claude"]');
+    await expect(claude.locator('.badge')).toHaveText("Site access enabled");
+    await claude.getByRole("button", { name: "Check connection", exact: true }).click();
+    await expect(claude.locator('.badge')).toHaveText("Needs attention");
+    await expect(claude.getByRole("button", { name: "Check connection", exact: true })).toBeEnabled();
+    await unverified.page.evaluate(() => { window.__connectionCheckOK = true; });
+    await claude.getByRole("button", { name: "Check connection", exact: true }).click();
+    await expect(claude.locator('.badge')).toHaveText("Connected");
+    await expect(claude.getByRole("button", { name: "Check connection", exact: true })).toHaveCount(0);
+    await expect(claude.getByRole("button", { name: "Disconnect", exact: true })).toBeVisible();
+    await unverified.page.screenshot({ path: output + "/claude-connected-clean.png", fullPage: true });
+    await unverified.page.evaluate(() => {
+      window.__fixtureStatus.sync = [{ provider: 'claude', state: 'needs_signin', errorCode: 'needs_signin', error: 'Sign in again.', lastRunAt: new Date(Date.now() + 60000).toISOString() }];
+      window.sessionStorage.setItem('claude-ui-fixture-state', JSON.stringify(window.__fixtureStatus));
+    });
+    await unverified.page.reload();
+    await unverified.page.getByRole("button", { name: "Connections", exact: true }).click();
+    await expect(claude.locator('.badge')).toHaveText("Needs attention");
+    await expect(claude.getByRole("button", { name: "Check connection", exact: true })).toBeVisible();
+  });
+  await unverified.context.close();
   const isolatedProviderStatus = structuredClone(publicStatus);
   isolatedProviderStatus.sync.unshift({ provider: "chatgpt", state: "running", savedCount: 0, discoveredCount: 5, errorCode: "rate_limited", error: "Wait before retrying." });
   isolatedProviderStatus.imports.unshift({ id: "history:chatgpt", provider: "chatgpt", state: "running", completedCount: 0, discoveredCount: 5, errorCode: "rate_limited", error: "Wait before retrying.", nextEligibleAt: new Date(Date.now() + 120000).toISOString() });
@@ -1718,7 +1745,7 @@ try {
     await expect(claude).toContainText("25/25");
     await expect(claude.locator(".inline-error")).toHaveCount(0);
     await expect(claude.locator(".badge")).toContainText("History allowance used");
-    await expect(limited.page.getByText(/saving an open chat remains available/)).toBeVisible();
+    await expect(limited.page.getByText(/saving the current chat remains available/)).toBeVisible();
     await limited.page.getByRole("button", { name: "Connections", exact: true }).click();
     await expect(limited.page.locator('.provider-connection[data-provider="claude"] .claude-history-issue')).toHaveCount(0);
     await expect(limited.page.getByText(/This applies to history imports/)).toBeVisible();
@@ -1731,15 +1758,84 @@ try {
   });
   await limited.context.close();
   const openAction = await pageWith(limitedStatus, true);
-  await check("Open-chat saving is the first primary action even when history allowance is used", async () => {
-    await expect(openAction.page.locator(".popup-actions button").first()).toHaveText("Save open chat");
+  await check("Current-chat saving is the first primary action even when history allowance is used", async () => {
+    await expect(openAction.page.locator(".popup-actions button").first()).toHaveText("Save current chat");
     await expect(openAction.page.locator(".popup-actions button").first()).toHaveClass("primary");
-    await expect(openAction.page.getByRole("button", { name: "Save open chat", exact: true })).toBeEnabled();
+    await expect(openAction.page.getByRole("button", { name: "Save current chat", exact: true })).toBeEnabled();
     await expect(openAction.page.locator(".automatic-status")).toHaveText("Automatic saving on");
     await expect(openAction.page.locator(".popup-footer")).toBeInViewport();
     await openAction.page.screenshot({ path: output + "/popup-open-chat-primary.png" });
   });
   await openAction.context.close();
+  const grokContext = await browser.newContext();
+  const grokPage = await grokContext.newPage();
+  await grokPage.route(origin + "/grok-fixture", (route) => route.fulfill({ contentType: "text/html", body: '<title>Grok</title><div id="fixture"></div>' }));
+  await grokPage.goto(origin + "/grok-fixture");
+  await grokPage.evaluate(async () => {
+    const { readVisibleGrokConversation } = await import('/providers/grok/page-capture.ts');
+    // Rehydrate the function as executeScript does, with no module closure.
+    window.__grokReader = new Function('return (' + readVisibleGrokConversation.toString() + ')')();
+  });
+  await check("Grok bubbles outside main keep speakers, code and order without nested duplicates or toolbar text", async () => {
+    await grokPage.locator('#fixture').evaluate((fixture) => {
+      fixture.innerHTML = '<aside><div class="message-bubble">Sidebar chat</div></aside>' +
+        '<div hidden><div class="message-bubble">Hidden history</div></div>' +
+        '<div contenteditable="true"><div class="message-bubble">Draft prompt</div></div>' +
+        '<div id="response-user" class="items-end"><div class="message-bubble user"><div class="response-content-markdown"><p>Test prompt</p></div><button>Copy prompt</button></div></div>' +
+        '<div id="response-reply" class="items-start"><div class="message-bubble"><div class="response-content-markdown"><p>Test reply</p><pre><code>if (ready) {\n  save();\n}</code></pre><p>Next paragraph</p><span style="display:none">Hidden token</span></div><div class="action-buttons">Retry response</div><script>secretScript()</script></div></div>';
+    });
+    const capture = await grokPage.evaluate(() => window.__grokReader(location.href));
+    expect(capture.turns).toEqual([
+      { role: 'user', text: 'Test prompt' },
+      { role: 'assistant', text: 'Test reply\nif (ready) {\n  save();\n}\nNext paragraph' },
+    ]);
+    expect(capture.truncated).toBe(false);
+    expect(capture.text).not.toMatch(/Sidebar|Hidden|Draft|Copy|Retry|secretScript/);
+    expect(await grokPage.evaluate(() => window.__grokReader(location.href + '#different'))).toBeNull();
+  });
+  await check("Grok explicit message attributes and markdown fallback keep unknown speakers honest", async () => {
+    await grokPage.locator('#fixture').evaluate((fixture) => {
+      fixture.innerHTML = '<div data-testid="user-message"><div class="message-bubble user"><p>One prompt</p></div></div>' +
+        '<div data-testid="assistant-message"><div class="response-content-markdown"><p>One reply</p></div></div>' +
+        '<div class="response-content-markdown"><p>Unattributed text</p></div>';
+    });
+    expect(await grokPage.evaluate(() => window.__grokReader(location.href).turns)).toEqual([
+      { role: 'user', text: 'One prompt' }, { role: 'assistant', text: 'One reply' }, { role: null, text: 'Unattributed text' },
+    ]);
+    await grokPage.locator('#fixture').evaluate((fixture) => { fixture.innerHTML = '<main><nav>Home</nav><textarea>Draft</textarea></main>'; });
+    expect(await grokPage.evaluate(() => window.__grokReader(location.href))).toMatchObject({ turns: [], text: '', truncated: false });
+  });
+  await check("Grok limits visible capture size and checks navigation during extraction", async () => {
+    await grokPage.locator('#fixture').evaluate((fixture) => {
+      fixture.innerHTML = '<div class="message-bubble user"></div>';
+      fixture.firstChild.textContent = 'x'.repeat(500100);
+    });
+    const size = await grokPage.evaluate(() => {
+      const capture = window.__grokReader(location.href);
+      return { length: capture.text.length, turns: capture.turns.length, truncated: capture.truncated };
+    });
+    expect(size).toEqual({ length: 500000, turns: 1, truncated: true });
+    await grokPage.locator('#fixture').evaluate((fixture) => {
+      fixture.innerHTML = '<aside>' + '<div class="message-bubble">Hidden sidebar</div>'.repeat(501) + '</aside>' +
+        '<div class="message-bubble user">Visible</div>'.repeat(501);
+    });
+    const roots = await grokPage.evaluate(() => {
+      const capture = window.__grokReader(location.href);
+      return { turns: capture.turns.length, truncated: capture.truncated, first: capture.turns[0].text };
+    });
+    expect(roots).toEqual({ turns: 500, truncated: true, first: 'Visible' });
+    expect(await grokPage.evaluate(() => {
+      const expected = location.href;
+      const original = window.getComputedStyle;
+      window.getComputedStyle = (...args) => {
+        history.replaceState(null, '', '#another-chat');
+        return original(...args);
+      };
+      try { return window.__grokReader(expected); }
+      finally { window.getComputedStyle = original; history.replaceState(null, '', expected); }
+    })).toBeNull();
+  });
+  await grokContext.close();
   const observerContext = await browser.newContext();
   const observerPage = await observerContext.newPage();
   await observerPage.route(origin + "/observer-fixture", (route) => route.fulfill({ contentType: "text/html", body: '<main><div class="font-user">Test prompt</div><div class="font-claude">First reply</div></main>' }));
