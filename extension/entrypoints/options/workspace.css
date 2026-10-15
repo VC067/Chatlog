@@ -141,9 +141,12 @@
 .archive-tools .search-field {
   flex: 1;
 }
-.archive-tools select {
+.archive-tools .custom-select {
+  flex: 0 0 150px;
+  width: 150px;
+}
+.archive-tools .custom-select__trigger {
   font-size: 12px;
-  padding: 10px 8px;
   min-height: 44px;
 }
 .archive-summary {
@@ -488,10 +491,11 @@
   margin-top: 14px;
   font-size: 13px;
 }
-.pin-example .brand-mark {
+.pin-example img {
   width: 25px;
-  height: 26px;
-  border-radius: 6px;
+  height: 25px;
+  object-fit: contain;
+  flex: none;
 }
 .pin-example > svg {
   margin-left: auto;
@@ -530,6 +534,18 @@
   gap: 10px;
   flex-wrap: wrap;
   margin-top: 20px;
+}
+.history-actions .history-choice {
+  flex: 0 1 220px;
+  width: 220px;
+}
+.history-actions .history-count-choice {
+  flex-basis: 130px;
+  width: 130px;
+}
+.setting-row > .custom-select {
+  flex: 0 1 180px;
+  width: 180px;
 }
 .delivery-overview {
   display: flex;

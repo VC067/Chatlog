@@ -14,6 +14,7 @@ function fenceFor(code: string): string {
 }
 
 export interface NoteOptions {
+  providerLabel?: string;
   includeSources?: boolean;
   saveCreatedFiles?: boolean;
   saveUploadedFiles?: boolean;
@@ -38,12 +39,12 @@ function renderBlock(block: ContentBlock, options: NoteOptions): string {
     return `> ${title}\n> ${block.url}`;
   }
   if (block.type === 'attachment') {
-    const media = block.mediaType ?? 'unknown';
+    const media = block.mediaType ? ` (${block.mediaType})` : '';
     if (options.saveUploadedFiles === false) {
-      return `Attachment: ${block.name} (${media})`;
+      return `Attachment: ${block.name}${media}`;
     }
-    const source = block.sourceRef?.startsWith('data:') ? 'Inline image source' : block.sourceRef ?? 'unavailable';
-    return `Attachment: ${block.name} (${media}) ${source}\n> [!missing]\n> Uploaded attachment binary could not be saved; the reference above is not a local backup.`;
+    const source = block.sourceRef && !block.sourceRef.startsWith('data:') ? `\n\nSource: ${block.sourceRef}` : '';
+    return `Attachment: ${block.name}${media}${source}\n\n> The original attachment could not be copied. Open the conversation in ${options.providerLabel ?? 'the provider'} to access it.`;
   }
   if (block.type === 'table') {
     if (block.header.length === 0) {
@@ -113,7 +114,7 @@ export function renderMessageMarkdown(message: ArchivedMessage, options: NoteOpt
 }
 
 export function renderConversationMarkdown(conversation: ArchivedConversation, options: NoteOptions = {}): string {
-  options = { ...options, notePath: options.notePath ?? markdownRelativePath(conversation) };
+  options = { ...options, providerLabel: conversation.provider === 'claude' ? 'Claude' : conversation.provider === 'chatgpt' ? 'ChatGPT' : 'Grok', notePath: options.notePath ?? markdownRelativePath(conversation) };
   const lines = [
     '---',
     'type: conversation',

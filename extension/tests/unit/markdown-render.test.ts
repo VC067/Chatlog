@@ -46,7 +46,8 @@ it('renders every content type without executing it', () => {
   expect(markdown).toContain('| a | b |');
   expect(markdown).toContain('````ts\nconst fence = ```;\n````');
   expect(markdown).toContain('> Paper\n> https://example.com/paper');
-  expect(markdown).toContain('Attachment: diagram.png (image/png) unavailable');
+  expect(markdown).toContain('Attachment: diagram.png (image/png)');
+  expect(markdown).toContain('> The original attachment could not be copied.');
   expect(markdown).toContain('$$E = mc^2$$');
   expect(markdown).toContain('> [!WARNING]\n> Canvas was not saved');
   expect(markdown).toContain('> [!WARNING]\n> Older messages were not loaded');

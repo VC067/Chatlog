@@ -89,6 +89,53 @@ describe('offline media side files', () => {
     expect(artifactFiles()).toHaveLength(artifactCount);
   });
 
+  it('saves explicit Claude previews and document downloads without inventing filename-only downloads', async () => {
+    const documentBytes = Uint8Array.from([37, 80, 68, 70, 45, 49]);
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      if (url === 'https://claude.ai/media/photo-preview') return new Response(pngBytes, { headers: { 'Content-Type': 'image/png' } });
+      if (url === 'https://claude.ai/media/report.pdf') return new Response(documentBytes, { headers: { 'Content-Type': 'application/pdf' } });
+      throw new Error(`Unexpected synthetic fixture URL: ${url}`);
+    }));
+    const conversation = conversationFromClaude({ uuid: 'offline-preview-demo', chat_messages: [{
+      uuid: 'human', sender: 'human', text: 'Keep the files', files: [
+        { file_kind: 'image', file_name: 'photo.jpg', preview_asset: { url: '/media/photo-preview' } },
+        { file_name: 'report.pdf', media_type: 'application/pdf', download_url: '/media/report.pdf' },
+        { file_name: 'unavailable.pdf', media_type: 'application/pdf' },
+      ],
+    }] }, 'https://claude.ai/chat/offline-preview-demo')!;
+
+    const saved = await writeSideFiles(conversation, settingsSchema.parse({}));
+    const blocks = saved.messages[0]!.blocks;
+    const image = blocks.find((block) => block.type === 'image');
+    const report = blocks.find((block) => block.type === 'file');
+    if (image?.type !== 'image' || report?.type !== 'file') throw new Error('Expected saved preview image and document');
+    expect(calls).toEqual(['https://claude.ai/media/photo-preview', 'https://claude.ai/media/report.pdf']);
+    expect(image.savedPath).toMatch(/^claude\/files\/[^/]+\/[^/]+\.png$/);
+    expect(image.savedPath).not.toMatch(/\.jpg$/);
+    const imageDir = fileDirectory()!;
+    const imageName = image.savedPath!.split('/').at(-1)!;
+    expect([...imageDir.files.get(imageName)!]).toEqual([...pngBytes]);
+    expect(report.savedPath).toMatch(/^claude\/files\/[^/]+\/[^/]+\.pdf$/);
+    const reportName = report.savedPath!.split('/').at(-1)!;
+    expect([...imageDir.files.get(reportName)!]).toEqual([...documentBytes]);
+
+    const markdown = renderConversationMarkdown(saved, { notePath: 'claude/projects/demo/note.md' });
+    const imageLink = markdown.match(/!\[photo\.jpg\]\(([^)]+)\)/)?.[1];
+    expect(imageLink).toBe(`../../${image.savedPath!.replace('claude/', '')}`);
+    expect(new URL(imageLink!, 'https://vault.test/claude/projects/demo/note.md').pathname).toBe(`/${image.savedPath}`);
+    expect(markdown).toContain(`[report.pdf](${report.savedPath!.replace('claude/', '../../')})`);
+    expect(markdown).toContain('unavailable.pdf');
+    expect(markdown).toContain('The original attachment could not be copied.');
+    expect(markdown).not.toContain('unavailable.pdf could not be saved');
+
+    const fileCount = imageDir.files.size;
+    await writeSideFiles(conversation, settingsSchema.parse({}));
+    expect(imageDir.files.size).toBe(fileCount);
+  });
+
   it('keeps prior artifact source and edited side files when changed bytes are saved', async () => {
     const conversation = claudeConversation();
     const first = await writeSideFiles(conversation, settingsSchema.parse({}));

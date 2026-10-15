@@ -43,6 +43,7 @@ import {
   ThemeEffect,
   Toggle,
 } from "../../ui/components.tsx";
+import { Select } from "../../ui/Select.tsx";
 
 type Section = "archive" | "connections" | "capture" | "license" | "help";
 const sections: Array<{ id: Section; label: string; icon: string }> = [
@@ -71,7 +72,7 @@ const headings: Record<Section, [string, string]> = {
   ],
   help: [
     "Make it feel like your workspace.",
-    "Appearance, troubleshooting and control over your local data.",
+    "Appearance and control over your local data.",
   ],
 };
 type Result = {
@@ -84,6 +85,7 @@ type Result = {
 type ClaudeProbe = NonNullable<Status["claudeConnection"]>;
 
 export default function Workspace() {
+  const supportMode = new URLSearchParams(location.search).get("support") === "1";
   const [status, setStatus] = useState(emptyStatus);
   const [loading, setLoading] = useState(true);
   const [section, setSection] = useState<Section>("archive");
@@ -101,6 +103,8 @@ export default function Workspace() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = useState("recent");
+  const [historyProvider, setHistoryProvider] = useState("all");
+  const [historyCount, setHistoryCount] = useState<number | null>(null);
   const [searching, setSearching] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [detail, setDetail] = useState<ChatDetail | null>(null);
@@ -358,11 +362,12 @@ export default function Workspace() {
       setBusy("");
     }
   }
-  async function sync(limit: number | null) {
+  async function sync(limit: number | null, provider?: "chatgpt" | "claude") {
     await perform("sync", async () => {
       const result = await send({
         action: "sync.run",
         ...(limit === null ? { full: true } : { limit }),
+        ...(provider ? { provider } : {}),
       });
       const message = syncMessage(result);
       if (Array.isArray(result) && result.some((item) => item.savedCount > 0))
@@ -445,6 +450,9 @@ export default function Workspace() {
     status.imports?.some(
       (item) => item.state === "running" && !item.error && !item.errorCode,
     ) === true;
+  const hasWaitingCheckpoint =
+    status.sync.some((item) => ["rate_limited", "unavailable", "provider_request_failed"].includes(item.errorCode ?? item.error ?? "")) ||
+    status.imports?.some((item) => ["rate_limited", "unavailable", "provider_request_failed"].includes(item.errorCode ?? item.error ?? "")) === true;
   const recentCheckLimit = Math.max(
     1,
     Math.min(
@@ -475,6 +483,41 @@ export default function Workspace() {
     : ([...recentCheckChoices]
         .reverse()
         .find((count) => count <= cappedRecentCount) ?? recentCheckChoices[0]);
+  const defaultRecentCount =
+    effectiveRecentCount ?? recentCheckChoices[0] ?? Math.min(25, recentCheckLimit);
+  const selectedRecentCount =
+    historyCount !== null && recentCheckChoices.includes(historyCount)
+      ? historyCount
+      : defaultRecentCount;
+  const historyProviderChoices = [
+    { value: "all", label: "All connected providers" },
+    ...(["chatgpt", "claude"] as const)
+      .filter((provider) => (provider !== "claude" || CLAUDE_ENABLED) && status.connected.includes(provider))
+      .map((provider) => ({ value: provider, label: providerLabel(provider) })),
+  ];
+  const selectedHistoryProvider = historyProviderChoices.some((option) => option.value === historyProvider) && historyProvider !== "all"
+    ? historyProvider as "chatgpt" | "claude"
+    : undefined;
+  function providerHasImportLock(provider?: "chatgpt" | "claude") {
+    const checkpoints = [...status.sync, ...(status.imports ?? [])];
+    const relevant = provider ? checkpoints.filter((item) => item.provider === provider) : checkpoints;
+    return relevant.some((item) =>
+      item.state === "running" ||
+      ["rate_limited", "unavailable", "provider_request_failed"].includes(item.errorCode ?? item.error ?? ""),
+    );
+  }
+  function providerHasRunningCheckpoint(provider?: "chatgpt" | "claude") {
+    const checkpoints = [...status.sync, ...(status.imports ?? [])];
+    return checkpoints.some(
+      (item) =>
+        item.state === "running" &&
+        !item.error &&
+        !item.errorCode &&
+        (!provider || item.provider === provider),
+    );
+  }
+  const selectedImportLocked = providerHasImportLock(selectedHistoryProvider);
+  const selectedHistoryRunning = providerHasRunningCheckpoint(selectedHistoryProvider);
   async function retryProvider(provider: "chatgpt" | "claude") {
     await perform("retry-" + provider, async () => {
       const result = await send({ action: "sync.resume", provider });
@@ -586,6 +629,19 @@ export default function Workspace() {
   function claudeCheckPanel(inHistory = false) {
     const checking = busy === "check-claude" || busy === "reset-claude";
     const probe = latestClaudeProbe;
+    if (!supportMode) {
+      return (
+        <>
+          {checking ? (
+            <p className="sync-guidance" role="status" aria-live="polite">Checking Claude connection…</p>
+          ) : probe && probe.source !== "import" ? (
+            <p className={probe.ok ? "sync-guidance" : "inline-error"} role={probe.ok ? "status" : "alert"}>
+              {probe.ok ? "Claude is connected." : providerIssueText(probe.code)}
+            </p>
+          ) : null}
+        </>
+      );
+    }
     return (
       <>
         {checking ? (
@@ -644,6 +700,9 @@ export default function Workspace() {
         {providers.map((provider) => {
           const connected = status.connected.includes(provider);
           const item = status.sync.find((entry) => entry.provider === provider);
+          const itemWaiting = ["rate_limited", "unavailable", "provider_request_failed"].includes(
+            item?.errorCode ?? item?.error ?? "",
+          );
           const progress = status.imports?.find(
             (entry) => entry.provider === provider,
           );
@@ -681,7 +740,11 @@ export default function Workspace() {
                       : " · Automatic capture & history"}
                   </small>
                   {item?.error && !providerHistoryLimited && provider !== "claude" && (
-                    <span className="inline-error">{item.error}</span>
+                    <span className={itemWaiting ? "sync-guidance" : "inline-error"}>
+                      {itemWaiting
+                        ? "Waiting for an automatic retry while Chrome is open."
+                        : providerIssueText(item.errorCode ?? item.error)}
+                    </span>
                   )}
                 </div>
                 {connected ? (
@@ -693,7 +756,7 @@ export default function Workspace() {
                             ? "blue"
                             : coverageNotice
                               ? "warn"
-                              : probe
+                              : supportMode && probe
                               ? probe.ok
                                 ? "good"
                                 : "warn"
@@ -709,7 +772,7 @@ export default function Workspace() {
                           ? "Checking"
                           : coverageNotice
                             ? "Some workspaces unavailable"
-                            : probe
+                            : supportMode && probe
                               ? probe.source === "import"
                                 ? probe.ok
                                   ? "Last import passed"
@@ -733,7 +796,7 @@ export default function Workspace() {
                         {checking ? "Checking…" : "Check connection"}
                       </button>
                     )}
-                    {provider === "claude" &&
+                    {supportMode && provider === "claude" &&
                       !setup &&
                       probe?.source !== "import" && probe?.ok === false && (
                         <button
@@ -772,18 +835,18 @@ export default function Workspace() {
                   </button>
                 )}
               </div>
-              {provider === "claude" && connected && !setup && (
+              {provider === "claude" && connected && !setup && (supportMode || checking || (probe?.source !== "import" && !!probe)) && (
                 <div className="claude-diagnostics" ref={claudeResultRef}>
                   <p className="claude-connection-help">
                     Uses your signed-in Claude tab. No separate sign-in popup.
                   </p>
                   {claudeCheckPanel()}
-                  {historyIssue && (
+                  {supportMode && historyIssue && (
                     <button className="text-button" onClick={() => navigate("capture")}>
                       View history import <Icon name="arrow" size={14} />
                     </button>
                   )}
-                  {coverageNotice && (
+                  {supportMode && coverageNotice && (
                     <p className="sync-guidance">Saved accessible Claude history. Some Claude workspaces were unavailable; those chats were not imported.</p>
                   )}
                   {probe?.source !== "import" && probe?.ok === false && (
@@ -1083,20 +1146,13 @@ export default function Workspace() {
                     " per provider. History saving resumes when your access is active."}
             </small>
           </span>
-          <select
-            aria-label="Recent conversations to check"
-            value={effectiveRecentCount}
+          <Select
+            label="Recent conversations to check"
+            value={String(effectiveRecentCount)}
+            options={recentCheckChoices.map((count) => ({ value: String(count), label: count + " chats" }))}
             disabled={!!busy}
-            onChange={(event) =>
-              change({ latestSaveCount: Number(event.target.value) })
-            }
-          >
-            {recentCheckChoices.map((count) => (
-              <option key={count} value={count}>
-                {count} chats
-              </option>
-            ))}
-          </select>
+            onChange={(value) => change({ latestSaveCount: Number(value) })}
+          />
         </label>
       </>
     );
@@ -1151,7 +1207,7 @@ export default function Workspace() {
                 "needs_signin",
               ].includes(state) ||
                 (state === "running" && Boolean(error)));
-            const issue = !partialCoverage && error ? providerIssueText(code ?? error) : null;
+            const issue = !partialCoverage && !waiting && error ? providerIssueText(code ?? error) : null;
             return (
               <div className="sync-provider" data-provider={provider} key={provider}>
               <div className="sync-row">
@@ -1192,20 +1248,19 @@ export default function Workspace() {
                   {waiting && (
                     <span className="sync-guidance">
                       {progress?.nextEligibleAt
-                        ? "Automatic retry not before " +
-                          new Date(progress.nextEligibleAt).toLocaleTimeString(
-                            undefined,
-                            { hour: "numeric", minute: "2-digit" },
-                          ) +
-                          "."
-                        : "Waiting for an automatic retry."}{" "}
+                        ? "Saving will resume automatically after " +
+                          new Date(progress.nextEligibleAt).toLocaleString(undefined, {
+                            month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+                          }) +
+                          " while Chrome is open. This is the earliest retry time; the provider may still ask us to wait."
+                        : "Saving will resume automatically when the provider is ready while Chrome is open."}{" "}
                       Saved import progress is kept.
                     </span>
                   )}
                 </div>
                 <Badge
                   tone={
-                    partialCoverage || retryable || (error && !historyLimited)
+                    partialCoverage || retryable || (error && !historyLimited && !waiting)
                       ? "warn"
                       : item?.state === "ok"
                         ? "good"
@@ -1248,7 +1303,7 @@ export default function Workspace() {
                         ? "Checking…"
                         : "Retry " + providerLabel(provider)}
                     </button>
-                    {provider === "claude" && (
+                    {supportMode && provider === "claude" && (
                       <button className="secondary" disabled={!!busy} onClick={() => void checkClaudeConnection()}>
                         {busy === "check-claude" ? "Checking…" : "Check connection"}
                       </button>
@@ -1270,7 +1325,7 @@ export default function Workspace() {
                   </button>
                 )}
               </div>
-              {provider === "claude" && (retryable || latestClaudeProbe || busy === "check-claude") && (
+              {supportMode && provider === "claude" && (retryable || latestClaudeProbe || busy === "check-claude") && (
                 <div className="claude-diagnostics" ref={claudeResultRef}>
                   {retryable && !latestClaudeProbe && busy !== "check-claude" && <p className="claude-connection-help">Check connection to see where access fails. This check does not save chats.</p>}
                   {claudeCheckPanel(true)}
@@ -1487,6 +1542,7 @@ export default function Workspace() {
                       disabled={
                         !!busy ||
                         hasRunningCheckpoint ||
+                        hasWaitingCheckpoint ||
                         !historyConnected ||
                         !status.license.canImportHistory ||
                         !destinationReady
@@ -1495,8 +1551,10 @@ export default function Workspace() {
                     >
                       {busy === "sync" || historyRunning
                         ? "Saving conversations…"
-                        : hasRunningCheckpoint
-                          ? "Provider needs attention"
+                        : hasWaitingCheckpoint
+                          ? "Waiting to continue"
+                          : hasRunningCheckpoint
+                            ? "Provider needs attention"
                           : firstSaved
                             ? "Check latest five again"
                             : "Save latest five"}
@@ -1542,9 +1600,7 @@ export default function Workspace() {
                         Find it in the list, then click the pin beside its name.
                       </p>
                       <div className="pin-example" aria-hidden="true">
-                        <span className="brand-mark">
-                          <Icon name="archive" size={16} />
-                        </span>
+                        <img src="/assets/chat-archive-logo-v1.png" alt="" />
                         <span>{branding.productName}</span>
                         <Icon name="pin" size={17} />
                       </div>
@@ -1815,30 +1871,30 @@ export default function Workspace() {
                 <label className="sr-only" htmlFor="provider-filter">
                   Filter provider
                 </label>
-                <select
+                <Select
                   id="provider-filter"
+                  label="Filter provider"
                   value={filter}
-                  onChange={(event) => setFilter(event.target.value)}
-                >
-                  <option value="all">All providers</option>
-                  {providers.map((provider) => (
-                    <option key={provider} value={provider}>
-                      {providerLabel(provider)}
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: "all", label: "All providers" },
+                    ...providers.map((provider) => ({ value: provider, label: providerLabel(provider) })),
+                  ]}
+                  onChange={setFilter}
+                />
                 <label className="sr-only" htmlFor="archive-sort">
                   Sort conversations
                 </label>
-                <select
+                <Select
                   id="archive-sort"
+                  label="Sort conversations"
                   value={sort}
-                  onChange={(event) => setSort(event.target.value)}
-                >
-                  <option value="recent">Newest first</option>
-                  <option value="oldest">Oldest first</option>
-                  <option value="title">Title A–Z</option>
-                </select>
+                  options={[
+                    { value: "recent", label: "Newest first" },
+                    { value: "oldest", label: "Oldest first" },
+                    { value: "title", label: "Title A–Z" },
+                  ]}
+                  onChange={setSort}
+                />
               </div>
               <div className="archive-summary">
                 <span>
@@ -1976,25 +2032,22 @@ export default function Workspace() {
                       Checks connected history providers while Chrome is open.
                     </small>
                   </span>
-                  <select
-                    value={status.settings.syncIntervalMinutes}
+                  <Select
+                    label="Background check interval"
+                    value={String(status.settings.syncIntervalMinutes)}
+                    options={[30, 60, 120, 240, 720, 1440].map((minutes) => ({
+                      value: String(minutes),
+                      label: minutes < 60 ? minutes + " minutes" : minutes / 60 + " hours",
+                    }))}
                     disabled={!!busy}
-                    onChange={(event) =>
+                    onChange={(value) =>
                       void perform("settings", () =>
                         settings({
-                          syncIntervalMinutes: Number(event.target.value),
+                          syncIntervalMinutes: Number(value),
                         }),
                       )
                     }
-                  >
-                    {[30, 60, 120, 240, 720, 1440].map((minutes) => (
-                      <option key={minutes} value={minutes}>
-                        {minutes < 60
-                          ? minutes + " minutes"
-                          : minutes / 60 + " hours"}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </label>
               </Panel>
               <Panel
@@ -2009,31 +2062,47 @@ export default function Workspace() {
               >
                 {statusPanel()}
                 <div className="history-actions">
+                  <Select
+                    className="history-choice"
+                    label="History provider"
+                    value={selectedHistoryProvider ?? "all"}
+                    options={historyProviderChoices}
+                    disabled={!!busy || !historyConnected}
+                    onChange={setHistoryProvider}
+                  />
+                  <Select
+                    className="history-choice history-count-choice"
+                    label="Number of recent conversations"
+                    value={String(selectedRecentCount)}
+                    options={recentCheckChoices.map((count) => ({ value: String(count), label: count + " chats" }))}
+                    disabled={!!busy}
+                    onChange={(value) => setHistoryCount(Number(value))}
+                  />
                   <button
                     className="primary"
                     disabled={
                       !!busy ||
-                      hasRunningCheckpoint ||
-                      !historyConnected ||
+                      selectedImportLocked ||
+                      !(selectedHistoryProvider ? status.connected.includes(selectedHistoryProvider) : historyConnected) ||
                       !status.license.canImportHistory
                     }
-                    onClick={() => void sync(status.license.historyLimit ?? 25)}
+                    onClick={() => void sync(selectedRecentCount, selectedHistoryProvider)}
                   >
-                    {busy === "sync" || historyRunning
+                    {busy === "sync" || selectedHistoryRunning
                       ? "Saving…"
-                      : hasRunningCheckpoint
-                        ? "Provider needs attention"
-                        : "Save latest " + (status.license.historyLimit ?? 25)}
+                      : selectedImportLocked
+                        ? "Waiting to continue"
+                        : "Save latest " + selectedRecentCount}
                   </button>
                   <button
                     className="secondary"
                     disabled={
                       !!busy ||
-                      hasRunningCheckpoint ||
+                      selectedImportLocked ||
                       !historyConnected ||
                       !status.license.canImportHistory
                     }
-                    onClick={() => void sync(null)}
+                    onClick={() => void sync(null, selectedHistoryProvider)}
                   >
                     {status.license.historyLimit
                       ? "Save available trial history"
@@ -2394,7 +2463,7 @@ export default function Workspace() {
                   ))}
                 </div>
               </Panel>
-              <Panel
+              {supportMode && <Panel
                 title="Troubleshooting"
                 description="Check site access, provider sign-in and folder permissions first."
               >
@@ -2445,7 +2514,7 @@ export default function Workspace() {
                     Copy media diagnostic
                   </button>
                 </details>
-              </Panel>
+              </Panel>}
               <Panel
                 title="Your data"
                 description="Archive data lives in this browser. Markdown files and Notion pages are separate destination copies."
@@ -2554,14 +2623,16 @@ function providerIssueText(code: string): string {
       {
         blocked: "The provider blocked this request.",
         unreadable: "The provider returned a response we could not read.",
+        site_access: "Allow site access in Chrome to check Claude.",
+        no_tab: "Open Claude in a signed-in tab, then check again.",
         needs_signin: "Sign in to the provider in this browser.",
         unavailable: "The provider is temporarily unavailable.",
         provider_request_failed: "The provider request could not be completed.",
-        rate_limited: "The provider asked us to wait before retrying.",
+        rate_limited: "Claude asked us to wait. Saving will retry automatically while Chrome is open.",
         paused: "Saving is paused.",
         trial_history_limit: "History allowance used.",
       } as Record<string, string>
-    )[code] ?? code
+    )[code] ?? "The provider needs attention."
   );
 }
 function ExtensionsIcon() {

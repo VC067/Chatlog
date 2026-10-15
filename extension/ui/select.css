@@ -1,0 +1,120 @@
+.custom-select {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+  min-width: 0;
+  color: var(--text);
+}
+
+.custom-select__trigger {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 9px 16px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.custom-select__trigger:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--blue) 35%, transparent);
+  outline-offset: 2px;
+  border-color: var(--blue);
+}
+
+.custom-select__value {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 24px;
+}
+
+.custom-select__chevron {
+  position: absolute;
+  right: 16px;
+  width: 8px;
+  height: 8px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: translateY(-2px) rotate(45deg);
+  pointer-events: none;
+}
+
+.custom-select__trigger[aria-expanded="true"] .custom-select__chevron {
+  transform: translateY(2px) rotate(225deg);
+}
+
+.custom-select__menu {
+  position: absolute;
+  z-index: 1000;
+  top: calc(100% + 5px);
+  right: 0;
+  left: 0;
+  max-height: min(280px, 50vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 10px 28px -16px var(--text);
+  animation: custom-select-open 120ms ease-out;
+}
+
+.custom-select__option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.custom-select__option.is-active,
+.custom-select__option:hover {
+  background: var(--blue-soft);
+}
+
+.custom-select__option.is-selected {
+  color: var(--blue);
+}
+
+.custom-select__option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-select__check {
+  flex: none;
+  width: 16px;
+  color: var(--blue);
+  text-align: center;
+  opacity: 0;
+}
+
+.custom-select__option.is-selected .custom-select__check {
+  opacity: 1;
+}
+
+@keyframes custom-select-open {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .custom-select__menu { animation: none; }
+}

@@ -39,6 +39,21 @@ it('includes heterogeneous media fields and safe type labels without leaking val
   expect(text).toContain('samples');
 });
 
+it('retains Claude preview and file field names while redacting their private values', () => {
+  const redacted = redactStructure({ chat_messages: [{ files: [{
+    file_kind: 'image',
+    file_uuid: 'private-file-uuid-789',
+    preview_asset: { url: 'https://claude.ai/private/preview-token' },
+    preview_url: '/private/alternate-preview-token',
+    file_name: 'private-contract.pdf',
+    extracted_content: 'private extracted document text',
+  }] }] });
+  const encoded = JSON.stringify(redacted);
+  for (const field of ['files', 'file_kind', 'file_uuid', 'preview_asset', 'url', 'preview_url', 'file_name', 'extracted_content']) expect(encoded).toContain(`"${field}"`);
+  for (const value of ['private-file-uuid-789', 'preview-token', 'private/alternate-preview-token', 'private-contract.pdf', 'private extracted document text']) expect(encoded).not.toContain(value);
+  expect(encoded).toContain('"file_kind":"string"');
+});
+
 it('redacts dynamic keys outside a mapping too', () => {
   const redacted = JSON.stringify(redactStructure({ attachments: { private_customer_name: { title: 'private title' } }, project: { personal_slug: 'private source' } }));
   expect(redacted).not.toContain('private_customer_name');

@@ -39,7 +39,7 @@ function imageBlocksFromPart(part: unknown, provider: Provider, role: ArchivedMe
   const mediaRecord = source ?? record;
   const mediaType = firstString(mediaRecord, ['media_type', 'mime_type', 'content_type', 'file_type']) ?? firstString(record, ['media_type', 'mime_type', 'content_type', 'file_type']);
   const imageMediaType = mediaType === 'image_asset_pointer' ? null : mediaType;
-  const imageKind = record.type === 'image' || imageUrl !== undefined || (mediaType?.startsWith('image/') ?? false) || mediaType === 'image_asset_pointer';
+  const imageKind = record.type === 'image' || imageUrl !== undefined || (mediaType?.startsWith('image/') ?? false) || mediaType === 'image_asset_pointer' || provider === 'claude' && record.file_kind === 'image';
   const fileKind = record.type === 'file' || record.type === 'attachment' || record.attachment === true;
   const refs: string[] = [];
   const sourceUrl = source && typeof source.url === 'string' ? source.url : null;
@@ -48,6 +48,11 @@ function imageBlocksFromPart(part: unknown, provider: Provider, role: ArchivedMe
   if (imageUrlRecord && typeof imageUrlRecord.url === 'string') refs.push(imageUrlRecord.url);
   if (imageKind || fileKind) {
     for (const key of ['download_url', 'file_url', 'url']) if (typeof record[key] === 'string') refs.push(record[key] as string);
+  }
+  if (provider === 'claude' && imageKind && refs.length === 0) {
+    const preview = recordOf(record.preview_asset);
+    const previewUrl = preview && typeof preview.url === 'string' ? preview.url : typeof record.preview_url === 'string' ? record.preview_url : null;
+    if (previewUrl) refs.push(previewUrl);
   }
   const named = firstString(record, ['file_name', 'filename', 'name']) ?? (source ? firstString(source, ['file_name', 'filename', 'name']) : null);
   const base64Source = source && source.type === 'base64' && typeof source.data === 'string' && typeof source.media_type === 'string' && source.media_type.startsWith('image/') ? source : null;
@@ -77,6 +82,9 @@ function imageBlocksFromPart(part: unknown, provider: Provider, role: ArchivedMe
     if (valid && decodedBytes <= 8_000_000 && !seen.has(ref)) {
       blocks.push({ type: 'image', name: (named ?? 'image').slice(0, 80), sourceRef: ref, savedPath: null, mediaType: base64Source.media_type as string, origin: role === 'assistant' ? 'created' : 'uploaded' });
     }
+  }
+  if (provider === 'claude' && record.file_kind === 'image' && blocks.length === 0) {
+    blocks.push({ type: 'image', name: (named ?? 'image').slice(0, 80), sourceRef: null, savedPath: null, ...(imageMediaType ? { mediaType: imageMediaType } : {}), origin: role === 'assistant' ? 'created' : 'uploaded' });
   }
   if (fileKind && !blocks.some((block) => block.type === 'image')) {
     const ref = refs.map((raw) => providerUrl(raw, provider)).find((value): value is string => value !== null) ?? null;

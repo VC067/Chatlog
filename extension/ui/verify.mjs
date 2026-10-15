@@ -102,7 +102,7 @@ const archive = [
     destinations: { markdown: "pending" },
   },
 ];
-async function pageWith(status = base, popup = false) {
+async function pageWith(status = base, popup = false, support = false) {
   const context = await browser.newContext({
     viewport: popup
       ? { width: 400, height: 600 }
@@ -403,7 +403,7 @@ async function pageWith(status = base, popup = false) {
     },
   );
   await page.goto(
-    origin + "/entrypoints/" + (popup ? "popup" : "options") + "/index.html",
+    origin + "/entrypoints/" + (popup ? "popup" : "options") + "/index.html" + (support ? "?support=1" : ""),
   );
   await page.locator(".brand").first().waitFor();
   await page.waitForTimeout(450);
@@ -508,7 +508,7 @@ try {
       page.getByRole("button", { name: "Recheck delivery", exact: true }),
     ).toHaveCount(0);
     await page
-      .getByRole("button", { name: "Save latest 25", exact: true })
+      .getByRole("button", { name: "Save latest 5", exact: true })
       .click();
     await expect(page.getByText(/History save started/)).toBeVisible();
     await expect(
@@ -576,7 +576,7 @@ try {
       discoveredCount: 8,
     },
   ];
-  const connection = await pageWith(connectionStatus);
+  const connection = await pageWith(connectionStatus, false, true);
   await check(
     "Claude connection result is visible inline, copyable and separate from history errors",
     async () => {
@@ -832,7 +832,7 @@ try {
     { id: "finished-chatgpt", provider: "chatgpt", state: "completed", completedCount: 0, discoveredCount: 25, error: null },
     { id: "blocked-claude", provider: "claude", state: "paused", completedCount: 0, discoveredCount: 0, errorCode: "blocked", error: "The provider blocked this request." },
   ];
-  const history = await pageWith(historyStatus);
+  const history = await pageWith(historyStatus, false, true);
   await check("Completed history count states saves this run without claiming destination success", async () => {
     await history.page.getByRole("button", { name: /^Capture & history/ }).click();
     const chatgpt = history.page.locator('.sync-provider[data-provider="chatgpt"]');
@@ -868,7 +868,7 @@ try {
     checkedAt: "2026-10-14T07:00:00Z",
     source: "check",
   };
-  const failedImportReport = await pageWith(failedImportReportStatus);
+  const failedImportReport = await pageWith(failedImportReportStatus, false, true);
   await check("Failed Claude import report replaces an older successful check and copies without check guidance", async () => {
     await failedImportReport.page.getByRole("button", { name: /^Capture & history/ }).click();
     const claude = failedImportReport.page.locator('.sync-provider[data-provider="claude"]');
@@ -912,7 +912,7 @@ try {
     checkedAt: "2026-10-14T08:10:00Z",
     source: "import",
   };
-  const partialImport = await pageWith(partialImportStatus);
+  const partialImport = await pageWith(partialImportStatus, false, true);
   await check("Completed partial Claude import shows calm coverage and optional retry guidance", async () => {
     await partialImport.page.getByRole("button", { name: /^Capture & history/ }).click();
     const claude = partialImport.page.locator('.sync-provider[data-provider="claude"]');
@@ -1031,12 +1031,13 @@ try {
       const select = trialChoices.page.getByRole("combobox", {
         name: "Recent conversations to check",
       });
+      await expect(select).toContainText("25 chats");
+      await select.click();
       expect(
-        await select
-          .locator("option")
-          .evaluateAll((options) => options.map((option) => option.value)),
+        await trialChoices.page.getByRole("listbox", { name: "Recent conversations to check" })
+          .getByRole("option").evaluateAll((options) => options.map((option) => option.textContent.replace(/[^0-9]/g, ""))),
       ).toEqual(["1", "5", "10", "25"]);
-      await expect(select).toHaveValue("25");
+      await select.press("Escape");
       await expect(
         trialChoices.page.getByText(
           "Your trial includes up to 25 unique historical conversations per provider.",
@@ -1066,12 +1067,13 @@ try {
       const select = paidChoices.page.getByRole("combobox", {
         name: "Recent conversations to check",
       });
+      await expect(select).toContainText("500 chats");
+      await select.click();
       expect(
-        await select
-          .locator("option")
-          .evaluateAll((options) => options.map((option) => option.value)),
+        await paidChoices.page.getByRole("listbox", { name: "Recent conversations to check" })
+          .getByRole("option").evaluateAll((options) => options.map((option) => option.textContent.replace(/[^0-9]/g, ""))),
       ).toEqual(["1", "5", "10", "25", "50", "100", "250", "500"]);
-      await expect(select).toHaveValue("500");
+      await select.press("Escape");
       await expect(
         paidChoices.page.getByText(
           /Your active license supports larger history checks/,
@@ -1237,7 +1239,7 @@ try {
         waiting.page.getByText("Waiting", { exact: true }),
       ).toBeVisible();
       await expect(
-        waiting.page.getByText(/Automatic retry not before/),
+        waiting.page.getByText(/Saving will resume automatically after/),
       ).toBeVisible();
       await expect(
         waiting.page.getByRole("button", { name: "Retry Claude", exact: true }),
@@ -1624,11 +1626,92 @@ try {
     },
   );
   await active.context.close();
+  const publicStatus = structuredClone(base);
+  publicStatus.sync = [{ provider: "claude", state: "ok", savedCount: 5, discoveredCount: 5, error: null }];
+  publicStatus.imports = [{ id: "history:claude", provider: "claude", state: "completed", completedCount: 5, discoveredCount: 5, error: null }];
+  publicStatus.claudeConnection = { ok: true, code: "ok", source: "import", checkedAt: new Date().toISOString(), message: "Claude history requests succeeded.", report: "Technical fixture trace: HTTP 200 json" };
+  const publicUI = await pageWith(publicStatus);
+  await check("Normal settings keep successful checks concise and omit testing panels", async () => {
+    await publicUI.page.getByRole("button", { name: /^Capture & history/ }).first().click();
+    await expect(publicUI.page.locator(".sync-provider[data-provider=claude]")).toContainText("5 saved this run");
+    await expect(publicUI.page.locator(".claude-check-result, .claude-report")).toHaveCount(0);
+    await expect(publicUI.page.getByRole("button", { name: "Copy report", exact: true })).toHaveCount(0);
+    await publicUI.page.screenshot({ path: output + "/clean-history.png", fullPage: true });
+    await publicUI.page.getByRole("button", { name: "Connections", exact: true }).click();
+    await publicUI.page.evaluate(() => { window.__connectionCheckOK = true; });
+    await publicUI.page.getByRole("button", { name: "Check connection", exact: true }).click();
+    await expect(publicUI.page.getByText("Claude is connected.", { exact: true })).toBeVisible();
+    await expect(publicUI.page.locator(".claude-report, pre")).toHaveCount(0);
+    await publicUI.page.getByRole("button", { name: "Data & help", exact: true }).click();
+    await expect(publicUI.page.getByRole("heading", { name: "Troubleshooting", exact: true })).toHaveCount(0);
+    await expect(publicUI.page.getByText("Advanced testing tools", { exact: true })).toHaveCount(0);
+    await expect(publicUI.page.getByRole("button", { name: "Copy diagnostics", exact: true })).toHaveCount(0);
+  });
+  await check("Custom archive menus support pointer, keyboard, focus dismissal and both themes", async () => {
+    await publicUI.page.getByRole("button", { name: "Archive", exact: true }).click();
+    await expect(publicUI.page.locator("select")).toHaveCount(0);
+    const filter = publicUI.page.getByRole("combobox", { name: "Filter provider", exact: true });
+    const sort = publicUI.page.getByRole("combobox", { name: "Sort conversations", exact: true });
+    await filter.press("End");
+    await expect(publicUI.page.getByRole("option", { name: "Grok", exact: true })).toHaveClass(/is-active/);
+    await filter.press("Enter");
+    await expect(filter).toContainText("Grok");
+    await filter.press("Home");
+    await filter.press("Enter");
+    await expect(filter).toContainText("All providers");
+    await sort.press("o");
+    await expect(publicUI.page.getByRole("option", { name: "Oldest first", exact: true })).toHaveClass(/is-active/);
+    await sort.press("Enter");
+    await expect(sort).toContainText("Oldest first");
+    await filter.click();
+    await publicUI.page.getByRole("option", { name: "Claude", exact: true }).click();
+    await expect(filter).toContainText("Claude");
+    await filter.click();
+    await filter.press("Escape");
+    await expect(filter).toBeFocused();
+    await filter.click();
+    await publicUI.page.getByRole("textbox", { name: "Search full conversations" }).click();
+    await expect(filter).toHaveAttribute("aria-expanded", "false");
+    await sort.click();
+    await publicUI.page.screenshot({ path: output + "/custom-menu-light.png", fullPage: true });
+    await sort.press("Tab");
+    await expect(sort).toHaveAttribute("aria-expanded", "false");
+    await publicUI.page.getByRole("button", { name: "Data & help", exact: true }).click();
+    await publicUI.page.getByRole("radio", { name: "Dark", exact: true }).click();
+    await publicUI.page.emulateMedia({ reducedMotion: "reduce" });
+    await publicUI.page.getByRole("button", { name: "Archive", exact: true }).click();
+    await sort.click();
+    await expect(publicUI.page.getByRole("listbox", { name: "Sort conversations", exact: true })).toBeVisible();
+    await expect(publicUI.page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await publicUI.page.screenshot({ path: output + "/custom-menu-dark.png", fullPage: true });
+  });
+  await publicUI.context.close();
+  const isolatedProviderStatus = structuredClone(publicStatus);
+  isolatedProviderStatus.sync.unshift({ provider: "chatgpt", state: "running", savedCount: 0, discoveredCount: 5, errorCode: "rate_limited", error: "Wait before retrying." });
+  isolatedProviderStatus.imports.unshift({ id: "history:chatgpt", provider: "chatgpt", state: "running", completedCount: 0, discoveredCount: 5, errorCode: "rate_limited", error: "Wait before retrying.", nextEligibleAt: new Date(Date.now() + 120000).toISOString() });
+  const providerPicker = await pageWith(isolatedProviderStatus);
+  await check("Claude latest-25 selection is usable while ChatGPT waits and preserves command scope", async () => {
+    await providerPicker.page.getByRole("button", { name: /^Capture & history/ }).first().click();
+    await expect(providerPicker.page.locator('.sync-provider[data-provider="chatgpt"] .inline-error')).toHaveCount(0);
+    const provider = providerPicker.page.getByRole("combobox", { name: "History provider", exact: true });
+    await provider.click();
+    await providerPicker.page.getByRole("option", { name: "Claude", exact: true }).click();
+    const count = providerPicker.page.getByRole("combobox", { name: "Number of recent conversations", exact: true });
+    await count.click();
+    await providerPicker.page.getByRole("option", { name: /25 chats/ }).click();
+    const save = providerPicker.page.getByRole("button", { name: "Save latest 25", exact: true });
+    await expect(save).toBeEnabled();
+    await expect(providerPicker.page.getByRole("button", { name: "Save available trial history", exact: true })).toBeEnabled();
+    await save.click();
+    const commands = await providerPicker.page.evaluate(() => window.__uiCommands.filter((command) => command.action === "sync.run"));
+    expect(commands).toEqual([{ action: "sync.run", limit: 25, provider: "claude" }]);
+  });
+  await providerPicker.context.close();
   const limitedStatus = structuredClone(base);
   limitedStatus.historyUsage = [{ provider: "claude", used: 25, limit: 25 }];
   limitedStatus.sync = [{ provider: "claude", state: "ok", savedCount: 0, discoveredCount: 25, errorCode: "trial_history_limit", error: "History allowance used." }];
   limitedStatus.imports = [{ id: "history:claude", provider: "claude", state: "completed", completedCount: 0, discoveredCount: 25, errorCode: "trial_history_limit", error: "History allowance used." }];
-  const limited = await pageWith(limitedStatus);
+  const limited = await pageWith(limitedStatus, false, true);
   await check("History allowance is neutral, exposes usage, and allows a safe media diagnostic copy", async () => {
     await limited.page.getByRole("button", { name: /^Capture & history/ }).click();
     const claude = limited.page.locator('.sync-provider[data-provider="claude"]');

@@ -78,7 +78,7 @@ function inlineImage(ref: string): { bytes: Uint8Array; mediaType: string } {
 function mediaFileName(name: string, mediaType: string | null): string {
   const extension = mediaType ? IMAGE_EXTENSIONS[mediaType] : undefined;
   const safe = safeName(name);
-  return extension && !/\.[a-z0-9]{1,12}$/i.test(safe) ? `${safe}.${extension}` : safe;
+  return extension ? `${safe.replace(/\.[a-z0-9]{1,12}$/i, '')}.${extension}` : safe;
 }
 function artifactExtension(mediaType: string | null, language: string | null): string {
   if (mediaType === 'text/html') return 'html';

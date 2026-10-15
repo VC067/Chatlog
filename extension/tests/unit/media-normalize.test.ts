@@ -17,6 +17,26 @@ it('retains uploaded base64 images and Claude attachment references', () => {
   expect(chat?.messages[0]?.blocks).toContainEqual({ type: 'image', name: 'uploaded.png', sourceRef: 'https://claude.ai/api/files/uploaded.png', savedPath: null, mediaType: 'image/png', origin: 'uploaded' });
 });
 
+it('uses only explicit Claude image preview or download URLs and retains opaque images', () => {
+  const chat = conversationFromClaude({ uuid: 'claude-preview-chat', chat_messages: [{
+    uuid: 'user-preview', sender: 'human', text: 'Uploaded files',
+    files: [
+      { file_kind: 'image', file_name: 'asset-first.png', preview_asset: { url: '/media/asset-preview.png' }, preview_url: '/media/fallback-preview.png' },
+      { file_kind: 'image', file_name: 'preview-only.png', preview_url: '/media/only-preview.png' },
+      { file_kind: 'image', file_name: 'original.png', download_url: '/media/original.png', preview_asset: { url: '/media/not-original.png' }, preview_url: '/media/also-not-original.png' },
+      { file_kind: 'image', file_uuid: 'opaque-image-id' },
+      { type: 'file', file_name: 'report.pdf', media_type: 'application/pdf', preview_asset: { url: '/media/report-preview.png' }, preview_url: '/media/report-preview.pdf' },
+    ],
+  }] }, 'https://claude.ai/chat/claude-preview-chat');
+  const blocks = chat?.messages[0]?.blocks ?? [];
+  expect(blocks).toContainEqual({ type: 'image', name: 'asset-first.png', sourceRef: 'https://claude.ai/media/asset-preview.png', savedPath: null, origin: 'uploaded' });
+  expect(blocks).toContainEqual({ type: 'image', name: 'preview-only.png', sourceRef: 'https://claude.ai/media/only-preview.png', savedPath: null, origin: 'uploaded' });
+  expect(blocks).toContainEqual({ type: 'image', name: 'original.png', sourceRef: 'https://claude.ai/media/original.png', savedPath: null, origin: 'uploaded' });
+  expect(blocks).toContainEqual({ type: 'image', name: 'image', sourceRef: null, savedPath: null, origin: 'uploaded' });
+  expect(blocks).toContainEqual({ type: 'attachment', name: 'report.pdf', mediaType: 'application/pdf', sourceRef: null });
+  expect(blocks.some((block) => block.type === 'image' && (block.sourceRef?.includes('report-preview') ?? false))).toBe(false);
+});
+
 it('keeps full Claude artifact source and reconstructs only valid selected-branch patches', () => {
   const source = '<!doctype html><html><body>old</body></html>';
   const chat = conversationFromClaude({
