@@ -1,0 +1,15 @@
+.local-backups/
+extension/.tmp-profile*/
+extension/test-vault/
+extension/.env*
+!extension/.env.example
+.env*
+!.env.example
+.wrangler/
+*.pem
+*.key
+*.p12
+*.pfx
+*.log
+.DS_Store
+Thumbs.db
