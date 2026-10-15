@@ -4,7 +4,7 @@ Save AI conversations to a browser-local archive, Markdown files (including an O
 
 ## Install on another computer
 
-1. Sign into the GitHub account that can access this private repository. Open [Releases](https://github.com/VedantChhajed/Chatlog/releases) and download the latest Chatlog test ZIP.
+1. Sign into the GitHub account that can access this private repository. Open [Releases](https://github.com/VC067/Chatlog/releases) and download the latest Chatlog test ZIP.
 2. Extract the ZIP to a permanent folder. Keep that folder in place while testing.
 3. In Chrome, open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the extracted folder containing `manifest.json`.
 4. Open Chatlog's settings. Choose a new disposable Markdown folder or Obsidian test vault. Grant folder access on this computer.
